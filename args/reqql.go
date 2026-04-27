@@ -4,22 +4,18 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/piprim/reqql/pkg/core"
 	"github.com/pkg/errors"
 )
 
-type QueryFuncArgs = func(ctx context.Context, dest any, query string, args ...any) error
-type QueryFuncArg = func(ctx context.Context, dest any, query string, arg any) error
-
-type QueryFunc interface{ QueryFuncArgs | QueryFuncArg }
-
 type NoInputType = any
-type SelectFuncType[T any] func(*T) (string, error)
-type QueryFuncType[T any] func(*T) (string, any, error)
-type FromFuncType[T any] func(*T) (string, error)
-type WhereFuncType[T any] func(*T) (string, error)
-type OrderFuncType[T any] func(*T) (string, error)
-type LimitFuncType[T any] func(*T) (string, error)
-type OffsetFuncType[T any] func(*T) (int, error)
+type SelectFuncType[T any] func(*T) (string, []any, error)
+type QueryFuncType[T any] func(*T) (string, []any, error)
+type FromFuncType[T any] func(*T) (string, []any, error)
+type WhereFuncType[T any] func(*T) (string, []any, error)
+type OrderFuncType[T any] func(*T) (string, []any, error)
+type LimitFuncType[T any] func(*T) (string, []any, error)
+type OffsetFuncType[T any] func(*T) (string, []any, error)
 
 const (
 	selectAll   = "*"
@@ -27,7 +23,7 @@ const (
 	whereTrue   = "TRUE"
 	noOrder     = "1"
 	noLimit     = "ALL"
-	noOffset    = 0
+	noOffset    = "0"
 	queryFormat = `
 SELECT %s
 FROM %s`
@@ -35,32 +31,32 @@ FROM %s`
 WHERE %s
 ORDER BY %s
 LIMIT %s
-OFFSET %d`
+OFFSET %s`
 )
 
-func DefaultQueryParser[T any](_ *T) (sql string, arg any, err error) {
+func DefaultQueryParser[T any](_ *T) (sql string, args []any, err error) {
 	return fmt.Sprintf(queryFormat, selectAll, fromDefault), nil, nil
 }
 
-func WhereTrueFunc[T any](_ *T) (string, error) {
-	return whereTrue, nil
+func WhereTrueFunc[T any](_ *T) (string, []any, error) {
+	return whereTrue, nil, nil
 }
 
-func NoOrderFunc[T any](_ *T) (string, error) {
-	return noOrder, nil
+func NoOrderFunc[T any](_ *T) (string, []any, error) {
+	return noOrder, nil, nil
 }
 
-func NoLimitFunc[T any](_ *T) (string, error) {
-	return noLimit, nil
+func NoLimitFunc[T any](_ *T) (string, []any, error) {
+	return noLimit, nil, nil
 }
 
-func NoOffsetFunc[T any](_ *T) (int, error) {
-	return noOffset, nil
+func NoOffsetFunc[T any](_ *T) (string, []any, error) {
+	return noOffset, nil, nil
 }
 
 // Processor is the queryer processor useful to proceed the
 // queryer with always the same querying function.
-type Processor[InputType any, QueryFuncType QueryFunc] struct {
+type Processor[InputType any, QueryFuncType core.QueryFunc] struct {
 	queryer   *Queryer[InputType]
 	queryFunc QueryFuncType
 }
@@ -73,7 +69,7 @@ func (p *Processor[InputType, QueryFuncType]) Proceed(ctx context.Context, input
 
 // NewProcessor build a queryer processor in order to execute the
 // generated sql query with always the same querying function.
-func NewProcessor[InputType any, QueryFuncType QueryFunc](q *Queryer[InputType], f QueryFuncType) *Processor[InputType, QueryFuncType] {
+func NewProcessor[InputType any, QueryFuncType core.QueryFunc](q *Queryer[InputType], f QueryFuncType) *Processor[InputType, QueryFuncType] {
 	p := new(Processor[InputType, QueryFuncType])
 	p.queryer = q
 	p.queryFunc = f
@@ -95,39 +91,34 @@ type Queryer[InputType any] struct {
 }
 
 // WithQueryParserFunc set the function that provides the "SELECT … FROM …" part of the queryer.
-// WithQueryParserFunc WHERE WhereFunc(…) ORDER BY OrderFunc(…) LIMIT LimitFunc(…) OFFSET OrderFunc(…)
 func (q *Queryer[InputType]) WithQueryParserFunc(f QueryFuncType[InputType]) *Queryer[InputType] {
 	q.queryFunc = f
 
 	return q
 }
 
-// WithWhereFunc (MUST BE SQL SAFE !) set the function that provide the "where" part of the queryer.
-// SELECT SelectFunc(…) FROM FromFunc() WHERE WhereFunc(…) ORDER BY OrderFunc(…) LIMIT LimitFunc(…) OFFSET OrderFunc(…)
+// WithWhereFunc set the function that provide the "where" part of the queryer.
 func (q *Queryer[InputType]) WithWhereFunc(f WhereFuncType[InputType]) *Queryer[InputType] {
 	q.whereFunc = f
 
 	return q
 }
 
-// WithOrderFunc (MUST BE SQL SAFE !) set the function that provide the "order" part of the queryer.
-// SELECT SelectFunc(…) FROM FromFunc() WHERE WhereFunc(…) ORDER BY OrderFunc(…) LIMIT LimitFunc(…) OFFSET OrderFunc(…)
+// WithOrderFunc set the function that provide the "order" part of the queryer.
 func (q *Queryer[InputType]) WithOrderFunc(f OrderFuncType[InputType]) *Queryer[InputType] {
 	q.orderFunc = f
 
 	return q
 }
 
-// WithLimitFunc (MUST BE SQL SAFE !) set the function that provide the "limit" part of the queryer.
-// SELECT SelectFunc(…) FROM FromFunc() WHERE WhereFunc(…) ORDER BY OrderFunc(…) LIMIT LimitFunc(…) OFFSET OrderFunc(…)
+// WithLimitFunc set the function that provide the "limit" part of the queryer.
 func (q *Queryer[InputType]) WithLimitFunc(f LimitFuncType[InputType]) *Queryer[InputType] {
 	q.limitFunc = f
 
 	return q
 }
 
-// WithOffsetFunc (MUST BE SQL SAFE !) set the function that provide the "offset" part of the queryer.
-// SELECT SelectFunc(…) FROM FromFunc() WHERE WhereFunc(…) ORDER BY OrderFunc(…) LIMIT LimitFunc(…) OFFSET OrderFunc(…)
+// WithOffsetFunc set the function that provide the "offset" part of the queryer.
 func (q *Queryer[InputType]) WithOffsetFunc(f OffsetFuncType[InputType]) *Queryer[InputType] {
 	q.offsetFunc = f
 
@@ -144,76 +135,73 @@ func (q *Queryer[InputType]) SetArg(arg any) *Queryer[InputType] {
 }
 
 // Parse return the SQL generated by the queryer
-func (q *Queryer[InputType]) Parse(input *InputType) (sql string, arg any, err error) {
-	query, arg, err := q.queryFunc(input)
+func (q *Queryer[InputType]) Parse(input *InputType) (sql string, args []any, err error) {
+	query, qArgs, err := q.queryFunc(input)
 	if err != nil {
-		return "", arg, err
+		return "", nil, err
 	}
 
-	where, err := q.whereFunc(input)
+	where, wArgs, err := q.whereFunc(input)
 	if err != nil {
-		return "", arg, err
+		return "", nil, err
 	}
 
-	order, err := q.orderFunc(input)
+	order, oArgs, err := q.orderFunc(input)
 	if err != nil {
-		return "", arg, err
+		return "", nil, err
 	}
 
-	limit, err := q.limitFunc(input)
+	limit, lArgs, err := q.limitFunc(input)
 	if err != nil {
-		return "", arg, err
+		return "", nil, err
 	}
 
-	offset, err := q.offsetFunc(input)
+	offset, offArgs, err := q.offsetFunc(input)
 	if err != nil {
-		return "", arg, err
+		return "", nil, err
 	}
+
+	// Concatenate all arguments
+	args = append(args, qArgs...)
+	args = append(args, wArgs...)
+	args = append(args, oArgs...)
+	args = append(args, lArgs...)
+	args = append(args, offArgs...)
 
 	sql = fmt.Sprintf(sqlFormat, query, where, order, limit, offset)
 
-	return sql, arg, nil
+	return sql, args, nil
 }
 
 // Proceed executes the queryer using specialized dao.QueryFunc like
 // [dao.DBService.SelectContext], [dao..DBService.GetContext], [dao..DBService.NamedSelectContext] etc…
-func Proceed[InputType any, QF QueryFunc](
+func Proceed[InputType any, QF core.QueryFunc](
 	ctx context.Context, q *Queryer[InputType],
 	input *InputType, dest any, queryFunc QF) error {
-	sql, arg, err := q.Parse(input)
+	sql, args, err := q.Parse(input)
 	if err != nil {
 		return err
 	}
 
-	if arg != nil && q.arg != nil {
-		data := map[string]any{
-			"arg":   arg,
-			"q.arg": q.arg,
-		}
-
-		return errors.New("Parse query function return not nil")
-	}
-
+	arg := any(args)
 	if q.arg != nil {
+		if len(args) > 0 {
+			return errors.New("Parse query functions return not nil arguments while SetArg was used")
+		}
 		arg = q.arg
 	}
 
 	switch f := any(queryFunc).(type) {
-	case QueryFuncArg:
+	case core.QueryFuncArg:
 		return f(ctx, dest, sql, arg)
-	case QueryFuncArgs:
-		switch args := arg.(type) {
+	case core.QueryFuncArgs:
+		switch a := arg.(type) {
 		case []any:
-			return f(ctx, dest, sql, args...)
+			return f(ctx, dest, sql, a...)
 		case nil:
 			return f(ctx, dest, sql)
 		default:
-			data := map[string]any{
-				"function": fmt.Sprintf("%+v", queryFunc),
-				"arg":      arg,
-			}
-
-			return errors.New(fmt.Sprintf("function need []any, %T given", args))
+			return errors.Errorf("function need []any, %T given", a)
 		}
 	}
 
