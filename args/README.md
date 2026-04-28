@@ -12,7 +12,7 @@
 To install this version (parameterized arguments), use:
 
 ```bash
-go get github.com/piprim/reqql
+go get github.com/piprim/reqql/args
 ```
 
 ## Quick Start

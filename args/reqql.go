@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/piprim/reqql/pkg/core"
 	"github.com/pkg/errors"
 )
+
+type QueryFuncArgs = func(ctx context.Context, dest any, query string, args ...any) error
+type QueryFuncArg = func(ctx context.Context, dest any, query string, arg any) error
+
+type QueryFunc interface{ QueryFuncArgs | QueryFuncArg }
 
 type NoInputType = any
 type SelectFuncType[T any] func(*T) (string, []any, error)
@@ -56,7 +60,7 @@ func NoOffsetFunc[T any](_ *T) (string, []any, error) {
 
 // Processor is the queryer processor useful to proceed the
 // queryer with always the same querying function.
-type Processor[InputType any, QueryFuncType core.QueryFunc] struct {
+type Processor[InputType any, QueryFuncType QueryFunc] struct {
 	queryer   *Queryer[InputType]
 	queryFunc QueryFuncType
 }
@@ -69,7 +73,7 @@ func (p *Processor[InputType, QueryFuncType]) Proceed(ctx context.Context, input
 
 // NewProcessor build a queryer processor in order to execute the
 // generated sql query with always the same querying function.
-func NewProcessor[InputType any, QueryFuncType core.QueryFunc](q *Queryer[InputType], f QueryFuncType) *Processor[InputType, QueryFuncType] {
+func NewProcessor[InputType any, QueryFuncType QueryFunc](q *Queryer[InputType], f QueryFuncType) *Processor[InputType, QueryFuncType] {
 	p := new(Processor[InputType, QueryFuncType])
 	p.queryer = q
 	p.queryFunc = f
@@ -175,7 +179,7 @@ func (q *Queryer[InputType]) Parse(input *InputType) (sql string, args []any, er
 
 // Proceed executes the queryer using specialized dao.QueryFunc like
 // [dao.DBService.SelectContext], [dao..DBService.GetContext], [dao..DBService.NamedSelectContext] etc…
-func Proceed[InputType any, QF core.QueryFunc](
+func Proceed[InputType any, QF QueryFunc](
 	ctx context.Context, q *Queryer[InputType],
 	input *InputType, dest any, queryFunc QF) error {
 	sql, args, err := q.Parse(input)
@@ -192,9 +196,9 @@ func Proceed[InputType any, QF core.QueryFunc](
 	}
 
 	switch f := any(queryFunc).(type) {
-	case core.QueryFuncArg:
+	case QueryFuncArg:
 		return f(ctx, dest, sql, arg)
-	case core.QueryFuncArgs:
+	case QueryFuncArgs:
 		switch a := arg.(type) {
 		case []any:
 			return f(ctx, dest, sql, a...)
