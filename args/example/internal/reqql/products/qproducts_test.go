@@ -8,7 +8,8 @@ import (
 )
 
 const testTmplSrc = `{{define "all"}}SELECT p.id, p.name, p.price, p.stock FROM products p{{end}}` +
-	`{{define "withCategory"}}{{template "all" .}} JOIN categories c ON p.category_id = c.id AND c.name = ?{{end}}`
+	`{{define "joinCategory"}}{{template "all" .}} JOIN categories c ON p.category_id = c.id{{end}}` +
+	`{{define "withCategory"}}{{template "joinCategory" .}} AND c.name = ?{{end}}`
 
 func mustParseTmpl(t *testing.T) *template.Template {
 	t.Helper()
@@ -20,6 +21,8 @@ func mustParseTmpl(t *testing.T) *template.Template {
 
 	return tmpl
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 func TestProceed_AllProducts(t *testing.T) {
 	tmpl := mustParseTmpl(t)
@@ -38,7 +41,7 @@ func TestProceed_AllProducts(t *testing.T) {
 	filter := &Filter{
 		CategoryName: CategoryNameAll,
 		StockFilter:  StockFilterAll,
-		SortOrder:    SortOrderNone,
+		SortOrder:    SortOrder{Asc: nil},
 		LimitName:    LimitNameAll,
 	}
 
@@ -51,11 +54,11 @@ func TestProceed_AllProducts(t *testing.T) {
 	}
 
 	if strings.Contains(capturedSQL, "JOIN") {
-		t.Errorf("expected no JOIN for CategoryNameAll, got: %s", capturedSQL)
+		t.Errorf("expected no JOIN for CategoryNameAll without category.name sort, got: %s", capturedSQL)
 	}
 
 	if len(capturedArgs) != 0 {
-		t.Errorf("expected no args for CategoryNameAll, got: %v", capturedArgs)
+		t.Errorf("expected no args, got: %v", capturedArgs)
 	}
 }
 
@@ -76,7 +79,7 @@ func TestProceed_WithCategory(t *testing.T) {
 	filter := &Filter{
 		CategoryName: CategoryNameElectronics,
 		StockFilter:  StockFilterInStock,
-		SortOrder:    SortOrderPriceAsc,
+		SortOrder:    SortOrder{Cols: "price", Asc: boolPtr(true)},
 		LimitName:    LimitName10,
 	}
 
@@ -93,7 +96,7 @@ func TestProceed_WithCategory(t *testing.T) {
 	}
 
 	if !strings.Contains(capturedSQL, "p.price ASC") {
-		t.Errorf("expected price ASC in ORDER BY, got: %s", capturedSQL)
+		t.Errorf("expected p.price ASC in ORDER BY, got: %s", capturedSQL)
 	}
 
 	if !strings.Contains(capturedSQL, "LIMIT 10") {
@@ -119,7 +122,7 @@ func TestProceed_StockOutOfStock(t *testing.T) {
 	filter := &Filter{
 		CategoryName: CategoryNameAll,
 		StockFilter:  StockFilterOutOfStock,
-		SortOrder:    SortOrderPriceDesc,
+		SortOrder:    SortOrder{Cols: "price", Asc: boolPtr(false)},
 		LimitName:    LimitName5,
 	}
 
@@ -132,10 +135,53 @@ func TestProceed_StockOutOfStock(t *testing.T) {
 	}
 
 	if !strings.Contains(capturedSQL, "p.price DESC") {
-		t.Errorf("expected price DESC in ORDER BY, got: %s", capturedSQL)
+		t.Errorf("expected p.price DESC in ORDER BY, got: %s", capturedSQL)
 	}
 
 	if !strings.Contains(capturedSQL, "LIMIT 5") {
 		t.Errorf("expected LIMIT 5, got: %s", capturedSQL)
+	}
+}
+
+func TestProceed_SortByCategoryName(t *testing.T) {
+	tmpl := mustParseTmpl(t)
+
+	var capturedSQL string
+
+	var capturedArgs []any
+
+	mockQF := func(_ context.Context, _ any, query string, args ...any) error {
+		capturedSQL = query
+		capturedArgs = args
+
+		return nil
+	}
+
+	// CategoryNameAll + sort by category.name: needs JOIN but no category filter arg.
+	filter := &Filter{
+		CategoryName: CategoryNameAll,
+		StockFilter:  StockFilterAll,
+		SortOrder:    SortOrder{Cols: "category.name", Asc: boolPtr(true)},
+		LimitName:    LimitNameAll,
+	}
+
+	if err := Proceed(context.Background(), tmpl, filter, nil, mockQF); err != nil {
+		t.Fatalf("Proceed: %v", err)
+	}
+
+	if !strings.Contains(capturedSQL, "JOIN categories c") {
+		t.Errorf("expected JOIN for category.name sort, got: %s", capturedSQL)
+	}
+
+	if strings.Contains(capturedSQL, "c.name = ?") {
+		t.Errorf("expected no category filter in ON clause for CategoryNameAll, got: %s", capturedSQL)
+	}
+
+	if !strings.Contains(capturedSQL, "c.name ASC") {
+		t.Errorf("expected c.name ASC in ORDER BY, got: %s", capturedSQL)
+	}
+
+	if len(capturedArgs) != 0 {
+		t.Errorf("expected no args for CategoryNameAll + category.name sort, got: %v", capturedArgs)
 	}
 }

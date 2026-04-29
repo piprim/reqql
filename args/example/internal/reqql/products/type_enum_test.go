@@ -38,17 +38,6 @@ func TestParseStockFilter(t *testing.T) {
 	}
 }
 
-func TestParseSortOrder(t *testing.T) {
-	for _, v := range []string{"none", "priceAsc", "priceDesc"} {
-		if _, err := ParseSortOrder(v); err != nil {
-			t.Errorf("ParseSortOrder(%q) unexpected error: %v", v, err)
-		}
-	}
-
-	if _, err := ParseSortOrder("invalid"); err == nil {
-		t.Error("ParseSortOrder(\"invalid\") expected error, got nil")
-	}
-}
 
 func TestParseLimitName(t *testing.T) {
 	for _, v := range []string{"all", "5", "10", "20"} {

@@ -60,33 +60,6 @@ func (x StockFilter) IsValid() bool {
 	return err == nil
 }
 
-// SortOrder ------------------------------------------------------------------
-
-type SortOrder string
-
-const (
-	SortOrderNone      SortOrder = "none"
-	SortOrderPriceAsc  SortOrder = "priceAsc"
-	SortOrderPriceDesc SortOrder = "priceDesc"
-)
-
-var ErrInvalidSortOrder = errors.New("not a valid SortOrder")
-
-func ParseSortOrder(s string) (SortOrder, error) {
-	switch SortOrder(s) {
-	case SortOrderNone, SortOrderPriceAsc, SortOrderPriceDesc:
-		return SortOrder(s), nil
-	}
-
-	return "", fmt.Errorf("%s is %w", s, ErrInvalidSortOrder)
-}
-
-func (x SortOrder) IsValid() bool {
-	_, err := ParseSortOrder(string(x))
-
-	return err == nil
-}
-
 // LimitName ------------------------------------------------------------------
 
 type LimitName string

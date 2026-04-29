@@ -102,7 +102,7 @@ func TestHandleProducts_AllFilters(t *testing.T) {
 	result := postFilter(t, srv, products.Filter{
 		CategoryName: products.CategoryNameAll,
 		StockFilter:  products.StockFilterAll,
-		SortOrder:    products.SortOrderNone,
+		SortOrder:    products.SortOrder{},
 		LimitName:    products.LimitNameAll,
 	})
 
@@ -118,7 +118,7 @@ func TestHandleProducts_CategoryElectronics(t *testing.T) {
 	result := postFilter(t, srv, products.Filter{
 		CategoryName: products.CategoryNameElectronics,
 		StockFilter:  products.StockFilterAll,
-		SortOrder:    products.SortOrderNone,
+		SortOrder:    products.SortOrder{},
 		LimitName:    products.LimitNameAll,
 	})
 
@@ -135,7 +135,7 @@ func TestHandleProducts_InStock(t *testing.T) {
 	result := postFilter(t, srv, products.Filter{
 		CategoryName: products.CategoryNameAll,
 		StockFilter:  products.StockFilterInStock,
-		SortOrder:    products.SortOrderNone,
+		SortOrder:    products.SortOrder{},
 		LimitName:    products.LimitNameAll,
 	})
 
@@ -151,7 +151,7 @@ func TestHandleProducts_Limit5(t *testing.T) {
 	result := postFilter(t, srv, products.Filter{
 		CategoryName: products.CategoryNameAll,
 		StockFilter:  products.StockFilterAll,
-		SortOrder:    products.SortOrderNone,
+		SortOrder:    products.SortOrder{},
 		LimitName:    products.LimitName5,
 	})
 

@@ -44,11 +44,20 @@
             </select>
         </div>
         <div class="filter-group">
-            <label for="sortOrder">Sort by price</label>
-            <select id="sortOrder">
-                <option value="none">Default</option>
-                <option value="priceAsc">Price ↑</option>
-                <option value="priceDesc">Price ↓</option>
+            <label for="sortCols">Sort by</label>
+            <select id="sortCols" onchange="toggleSortDir()">
+                <option value="">None</option>
+                <option value="price">Price</option>
+                <option value="name">Name</option>
+                <option value="stock">Stock</option>
+                <option value="category.name">Category</option>
+            </select>
+        </div>
+        <div class="filter-group" id="sortDirGroup" style="display:none">
+            <label for="sortAsc">Direction</label>
+            <select id="sortAsc">
+                <option value="true">↑ ASC</option>
+                <option value="false">↓ DESC</option>
             </select>
         </div>
         <div class="filter-group">
@@ -78,11 +87,21 @@
     </table>
 
     <script>
+        function toggleSortDir() {
+            const cols = document.getElementById("sortCols").value;
+            document.getElementById("sortDirGroup").style.display = cols ? "flex" : "none";
+        }
+
         async function applyFilter() {
+            const cols = document.getElementById("sortCols").value;
+            const sortOrder = cols
+                ? { cols: cols, asc: document.getElementById("sortAsc").value === "true" }
+                : { asc: null };
+
             const filter = {
                 categoryName: document.getElementById("categoryName").value,
                 stockFilter:  document.getElementById("stockFilter").value,
-                sortOrder:    document.getElementById("sortOrder").value,
+                sortOrder:    sortOrder,
                 limitName:    document.getElementById("limitName").value,
             };
 
