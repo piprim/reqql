@@ -21,8 +21,8 @@ func ExampleQueryer_Parse() {
 			Prepared(true), nil
 	}).WithWhereFunc(func(f *ProductFilter) goqu.Expression {
 		return goqu.C("category").Eq(f.Category)
-	}).WithOrderFunc(func(_ *ProductFilter) exp.OrderedExpression {
-		return goqu.C("price").Asc()
+	}).WithOrderFunc(func(_ *ProductFilter) []exp.OrderedExpression {
+		return []exp.OrderedExpression{goqu.C("price").Asc()}
 	})
 
 	sql, args, err := q.Parse(&ProductFilter{Category: "books"})
@@ -37,6 +37,52 @@ func ExampleQueryer_Parse() {
 	// Output:
 	// SELECT "id", "name", "price" FROM "products" WHERE ("category" = ?) ORDER BY "price" ASC
 	// [books]
+}
+
+func ExampleQueryer_Parse_multiWhere() {
+	type Filter struct {
+		Category string
+		InStock  bool
+	}
+
+	q := reqql.New[Filter]()
+	q.WithQueryParserFunc(func(_ *Filter) (*goqu.SelectDataset, error) {
+		return goqu.From("products").Select("id", "name").Prepared(true), nil
+	}).WithWhereFunc(func(f *Filter) goqu.Expression {
+		return goqu.C("category").Eq(f.Category)
+	}).WithWhereFunc(func(f *Filter) goqu.Expression {
+		if !f.InStock {
+			return nil
+		}
+
+		return goqu.C("stock").Gt(0)
+	})
+
+	sql, args, _ := q.Parse(&Filter{Category: "books", InStock: true})
+	fmt.Println(sql)
+	fmt.Println(args)
+	// Output:
+	// SELECT "id", "name" FROM "products" WHERE (("category" = ?) AND ("stock" > ?))
+	// [books 0]
+}
+
+func ExampleQueryer_Parse_multiOrder() {
+	type Filter struct{}
+
+	q := reqql.New[Filter]()
+	q.WithQueryParserFunc(func(_ *Filter) (*goqu.SelectDataset, error) {
+		return goqu.From("products").Select("id", "name", "price").Prepared(true), nil
+	}).WithOrderFunc(func(_ *Filter) []exp.OrderedExpression {
+		return []exp.OrderedExpression{
+			goqu.C("category").Asc(),
+			goqu.C("price").Desc(),
+		}
+	})
+
+	sql, _, _ := q.Parse(&Filter{})
+	fmt.Println(sql)
+	// Output:
+	// SELECT "id", "name", "price" FROM "products" ORDER BY "category" ASC, "price" DESC
 }
 
 func ExampleProceed() {

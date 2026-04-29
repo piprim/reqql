@@ -3,6 +3,7 @@ package reqql
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -31,8 +32,9 @@ type QueryFuncType[T any] func(*T) (string, []any, error)
 // FromFuncType is an alias for [QueryFuncType] kept for backward compatibility.
 type FromFuncType[T any] func(*T) (string, []any, error)
 
-// WhereFuncType is a builder function that returns the WHERE predicate SQL
-// fragment, its positional `?` arguments, and any error.
+// WhereFuncType is a builder function that returns a WHERE predicate SQL
+// fragment, its positional `?` arguments, and any error.  Multiple functions
+// registered via [Queryer.WithWhereFunc] are AND-combined at parse time.
 type WhereFuncType[T any] func(*T) (string, []any, error)
 
 // OrderFuncType is a builder function that returns the ORDER BY SQL fragment,
@@ -71,8 +73,9 @@ func DefaultQueryParser[T any](_ *T) (sql string, args []any, err error) {
 	return fmt.Sprintf(queryFormat, selectAll, fromDefault), nil, nil
 }
 
-// WhereTrueFunc is the default [WhereFuncType] used by [New].
-// It returns "TRUE", which produces an unconditional WHERE clause.
+// WhereTrueFunc is a [WhereFuncType] that returns "TRUE", producing an
+// unconditional predicate.  Useful as an explicit no-op entry in
+// enum-driven where-func maps.
 func WhereTrueFunc[T any](_ *T) (string, []any, error) {
 	return whereTrue, nil, nil
 }
@@ -120,7 +123,7 @@ func NewProcessor[InputType any, QueryFuncType QueryFunc](q *Queryer[InputType],
 }
 
 type Filter[InputType any] struct {
-	whereFunc  WhereFuncType[InputType]
+	whereFuncs []WhereFuncType[InputType]
 	orderFunc  OrderFuncType[InputType]
 	limitFunc  LimitFuncType[InputType]
 	offsetFunc OffsetFuncType[InputType]
@@ -139,9 +142,14 @@ func (q *Queryer[InputType]) WithQueryParserFunc(f QueryFuncType[InputType]) *Qu
 	return q
 }
 
-// WithWhereFunc set the function that provide the "where" part of the queryer.
+// WithWhereFunc appends f to the list of WHERE predicate builder functions.
+// All registered functions are called at [Queryer.Parse] time and their
+// results are AND-combined: non-empty predicates are joined as
+// "(pred1) AND (pred2) …".  Empty strings and "TRUE" are treated as no-ops
+// and skipped.  If no non-trivial predicate is produced the clause defaults
+// to "TRUE".
 func (q *Queryer[InputType]) WithWhereFunc(f WhereFuncType[InputType]) *Queryer[InputType] {
-	q.whereFunc = f
+	q.whereFuncs = append(q.whereFuncs, f)
 
 	return q
 }
@@ -179,18 +187,45 @@ func (q *Queryer[InputType]) SetArg(arg any) *Queryer[InputType] {
 	return q
 }
 
-// Parse calls each of the five builder functions in order (query → where →
-// order → limit → offset), concatenates the fragments into the final SQL, and
-// collects all positional arguments in the same left-to-right order.
+// Parse calls each builder function (query → all where funcs → order → limit
+// → offset), AND-combines all WHERE predicates, and assembles the final
+// parameterized SQL.  Arguments are collected left-to-right in the order the
+// functions are called.
 func (q *Queryer[InputType]) Parse(input *InputType) (sql string, args []any, err error) {
 	query, qArgs, err := q.queryFunc(input)
 	if err != nil {
 		return "", nil, err
 	}
 
-	where, wArgs, err := q.whereFunc(input)
-	if err != nil {
-		return "", nil, err
+	var whereParts []string
+	var wArgs []any
+
+	for _, wf := range q.whereFuncs {
+		w, a, err := wf(input)
+		if err != nil {
+			return "", nil, err
+		}
+
+		if w != "" && w != whereTrue {
+			whereParts = append(whereParts, w)
+			wArgs = append(wArgs, a...)
+		}
+	}
+
+	var where string
+
+	switch len(whereParts) {
+	case 0:
+		where = whereTrue
+	case 1:
+		where = whereParts[0]
+	default:
+		parts := make([]string, len(whereParts))
+		for i, p := range whereParts {
+			parts[i] = "(" + p + ")"
+		}
+
+		where = strings.Join(parts, " AND ")
 	}
 
 	order, oArgs, err := q.orderFunc(input)
@@ -208,7 +243,6 @@ func (q *Queryer[InputType]) Parse(input *InputType) (sql string, args []any, er
 		return "", nil, err
 	}
 
-	// Concatenate all arguments
 	args = append(args, qArgs...)
 	args = append(args, wArgs...)
 	args = append(args, oArgs...)
@@ -237,6 +271,7 @@ func Proceed[InputType any, QF QueryFunc](
 		if len(args) > 0 {
 			return errors.New("Parse query functions return not nil arguments while SetArg was used")
 		}
+
 		arg = q.arg
 	}
 
@@ -257,14 +292,14 @@ func Proceed[InputType any, QF QueryFunc](
 	return errors.New("unpredictible error (wtf)")
 }
 
-// New constructs a [Queryer] with all five builder functions set to safe
-// no-ops: [DefaultQueryParser], [WhereTrueFunc], [NoOrderFunc], [NoLimitFunc],
-// and [NoOffsetFunc].  Override any subset with the With* builder methods.
+// New constructs a [Queryer] with the query, order, limit, and offset builder
+// functions set to safe no-ops ([DefaultQueryParser], [NoOrderFunc],
+// [NoLimitFunc], [NoOffsetFunc]).  No WHERE functions are registered; the
+// clause defaults to "TRUE" until [Queryer.WithWhereFunc] is called.
 func New[InputType any]() *Queryer[InputType] {
 	q := Queryer[InputType]{}
 	q.
 		WithQueryParserFunc(DefaultQueryParser).
-		WithWhereFunc(WhereTrueFunc).
 		WithOrderFunc(NoOrderFunc).
 		WithLimitFunc(NoLimitFunc).
 		WithOffsetFunc(NoOffsetFunc)

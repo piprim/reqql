@@ -66,7 +66,7 @@ func getWhereFuncs() map[StockFilter]reqql.WhereFuncType[Filter] {
 }
 
 // orderFunc builds the ORDER BY expression dynamically from the filter's SortOrder.
-func orderFunc(f *Filter) exp.OrderedExpression {
+func orderFunc(f *Filter) []exp.OrderedExpression {
 	if f.SortOrder.Asc == nil {
 		return nil
 	}
@@ -77,10 +77,10 @@ func orderFunc(f *Filter) exp.OrderedExpression {
 	}
 
 	if *f.SortOrder.Asc {
-		return col.Asc()
+		return []exp.OrderedExpression{col.Asc()}
 	}
 
-	return col.Desc()
+	return []exp.OrderedExpression{col.Desc()}
 }
 
 func getLimitFuncs() map[LimitName]reqql.LimitFuncType[Filter] {

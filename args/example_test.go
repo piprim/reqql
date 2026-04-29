@@ -40,6 +40,37 @@ func ExampleQueryer_Parse() {
 	// [books 29.99]
 }
 
+func ExampleQueryer_Parse_multiWhere() {
+	type Filter struct {
+		Category string
+		InStock  bool
+	}
+
+	q := reqql.New[Filter]()
+	q.WithQueryParserFunc(func(_ *Filter) (string, []any, error) {
+		return "SELECT id, name FROM products", nil, nil
+	}).WithWhereFunc(func(f *Filter) (string, []any, error) {
+		return "category = ?", []any{f.Category}, nil
+	}).WithWhereFunc(func(f *Filter) (string, []any, error) {
+		if !f.InStock {
+			return "TRUE", nil, nil
+		}
+
+		return "stock > 0", nil, nil
+	})
+
+	sql, args, _ := q.Parse(&Filter{Category: "books", InStock: true})
+	fmt.Println(sql)
+	fmt.Println(args)
+	// Output:
+	// SELECT id, name FROM products
+	// WHERE (category = ?) AND (stock > 0)
+	// ORDER BY 1
+	// LIMIT ALL
+	// OFFSET 0
+	// [books]
+}
+
 func ExampleProceed() {
 	type Filter struct {
 		Status string

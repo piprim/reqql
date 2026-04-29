@@ -27,13 +27,15 @@ type NoInputType = any
 // on the returned dataset to get parameterized output.
 type QueryFuncType[T any] func(*T) (*goqu.SelectDataset, error)
 
-// WhereFuncType is a builder function that returns the WHERE predicate as a
-// goqu.Expression.  Return nil for an unconditional query (no WHERE clause).
+// WhereFuncType is a builder function that returns a WHERE predicate as a
+// goqu.Expression.  Multiple functions registered via [Queryer.WithWhereFunc]
+// are AND-combined at parse time.  Return nil to act as a no-op.
 type WhereFuncType[T any] func(*T) goqu.Expression
 
-// OrderFuncType is a builder function that returns the ORDER BY expression.
-// Return nil for no ordering.
-type OrderFuncType[T any] func(*T) exp.OrderedExpression
+// OrderFuncType is a builder function that returns the ORDER BY expressions.
+// Return nil or an empty slice for no ordering.  Multiple columns are expressed
+// by returning several [exp.OrderedExpression] values in priority order.
+type OrderFuncType[T any] func(*T) []exp.OrderedExpression
 
 // LimitFuncType is a builder function that returns the LIMIT value as a uint,
 // or nil for no limit.
@@ -50,15 +52,16 @@ func DefaultQueryParser[T any](_ *T) (*goqu.SelectDataset, error) {
 	return goqu.From("data").Select("id", "value"), nil
 }
 
-// WhereTrueFunc is the default [WhereFuncType] used by [New].
-// It returns nil, which goqu interprets as no WHERE clause (unconditional query).
+// WhereTrueFunc is a [WhereFuncType] that returns nil, producing no WHERE
+// predicate (unconditional query).  Useful as an explicit no-op entry in
+// enum-driven where-func maps.
 func WhereTrueFunc[T any](_ *T) goqu.Expression {
 	return nil
 }
 
 // NoOrderFunc is the default [OrderFuncType] used by [New].
 // It returns nil, which goqu interprets as no ORDER BY clause.
-func NoOrderFunc[T any](_ *T) exp.OrderedExpression {
+func NoOrderFunc[T any](_ *T) []exp.OrderedExpression {
 	return nil
 }
 
@@ -99,7 +102,7 @@ func NewProcessor[InputType any, QueryFuncType QueryFunc](q *Queryer[InputType],
 }
 
 type Filter[InputType any] struct {
-	whereFunc  WhereFuncType[InputType]
+	whereFuncs []WhereFuncType[InputType]
 	orderFunc  OrderFuncType[InputType]
 	limitFunc  LimitFuncType[InputType]
 	offsetFunc OffsetFuncType[InputType]
@@ -114,30 +117,38 @@ type Queryer[InputType any] struct {
 // WithQueryParserFunc set the function that provides the base dataset (SELECT ... FROM ...).
 func (q *Queryer[InputType]) WithQueryParserFunc(f QueryFuncType[InputType]) *Queryer[InputType] {
 	q.queryFunc = f
+
 	return q
 }
 
-// WithWhereFunc sets the function that provides the "where" expressions.
+// WithWhereFunc appends f to the list of WHERE predicate builder functions.
+// All registered functions are called at [Queryer.Parse] time and their
+// non-nil results are AND-combined via [goqu.And].  If no non-nil predicate
+// is produced no WHERE clause is added to the dataset.
 func (q *Queryer[InputType]) WithWhereFunc(f WhereFuncType[InputType]) *Queryer[InputType] {
-	q.whereFunc = f
+	q.whereFuncs = append(q.whereFuncs, f)
+
 	return q
 }
 
-// WithOrderFunc sets the function that provides the "order" expressions.
+// WithOrderFunc sets the function that provides the ORDER BY expressions.
 func (q *Queryer[InputType]) WithOrderFunc(f OrderFuncType[InputType]) *Queryer[InputType] {
 	q.orderFunc = f
+
 	return q
 }
 
-// WithLimitFunc sets the function that provides the "limit".
+// WithLimitFunc sets the function that provides the limit.
 func (q *Queryer[InputType]) WithLimitFunc(f LimitFuncType[InputType]) *Queryer[InputType] {
 	q.limitFunc = f
+
 	return q
 }
 
-// WithOffsetFunc sets the function that provides the "offset".
+// WithOffsetFunc sets the function that provides the offset.
 func (q *Queryer[InputType]) WithOffsetFunc(f OffsetFuncType[InputType]) *Queryer[InputType] {
 	q.offsetFunc = f
+
 	return q
 }
 
@@ -147,24 +158,38 @@ func (q *Queryer[InputType]) WithOffsetFunc(f OffsetFuncType[InputType]) *Querye
 // args are generated natively by [Queryer.Parse].
 func (q *Queryer[InputType]) SetArg(arg any) *Queryer[InputType] {
 	q.arg = arg
+
 	return q
 }
 
-// Parse applies each of the five builder functions to build up the goqu
-// dataset, then calls [goqu.SelectDataset.ToSQL] to produce the final SQL
-// string and positional arguments.
+// Parse applies each builder function to assemble the goqu dataset, then
+// calls [goqu.SelectDataset.ToSQL] to produce the final SQL string and
+// positional arguments.  All non-nil WHERE expressions are AND-combined;
+// all ORDER BY expressions are applied in the order returned.
 func (q *Queryer[InputType]) Parse(input *InputType) (sql string, args []any, err error) {
 	ds, err := q.queryFunc(input)
 	if err != nil {
 		return "", nil, err
 	}
 
-	if w := q.whereFunc(input); w != nil {
-		ds = ds.Where(w)
+	var exprs []goqu.Expression
+	for _, wf := range q.whereFuncs {
+		if e := wf(input); e != nil {
+			exprs = append(exprs, e)
+		}
 	}
 
-	if o := q.orderFunc(input); o != nil {
-		ds = ds.Order(o)
+	switch len(exprs) {
+	case 1:
+		ds = ds.Where(exprs[0])
+	default:
+		if len(exprs) > 1 {
+			ds = ds.Where(goqu.And(exprs...))
+		}
+	}
+
+	if o := q.orderFunc(input); len(o) > 0 {
+		ds = ds.Order(o...)
 	}
 
 	if l := q.limitFunc(input); l != nil {
@@ -193,11 +218,11 @@ func Proceed[InputType any, QF QueryFunc](
 
 	switch f := any(queryFunc).(type) {
 	case QueryFuncArg:
-		// If q.arg is set, we prefer it for QueryFuncArg (backward compat)
 		arg := any(args)
 		if q.arg != nil {
 			arg = q.arg
 		}
+
 		return f(ctx, dest, sql, arg)
 	case QueryFuncArgs:
 		return f(ctx, dest, sql, args...)
@@ -206,14 +231,14 @@ func Proceed[InputType any, QF QueryFunc](
 	return errors.New("unpredictible error (wtf)")
 }
 
-// New constructs a [Queryer] with all five builder functions set to safe
-// no-ops: [DefaultQueryParser], [WhereTrueFunc], [NoOrderFunc], [NoLimitFunc],
-// and [NoOffsetFunc].  Override any subset with the With* builder methods.
+// New constructs a [Queryer] with the query, order, limit, and offset builder
+// functions set to safe no-ops ([DefaultQueryParser], [NoOrderFunc],
+// [NoLimitFunc], [NoOffsetFunc]).  No WHERE functions are registered; no WHERE
+// clause is added until [Queryer.WithWhereFunc] is called.
 func New[InputType any]() *Queryer[InputType] {
 	q := Queryer[InputType]{}
 	q.
 		WithQueryParserFunc(DefaultQueryParser).
-		WithWhereFunc(WhereTrueFunc).
 		WithOrderFunc(NoOrderFunc).
 		WithLimitFunc(NoLimitFunc).
 		WithOffsetFunc(NoOffsetFunc)
