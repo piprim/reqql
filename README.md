@@ -1,7 +1,7 @@
 # ReqQL
 
 *ReqQL* is a lightweight, generic-driven bridge that seamlessly turns your Go request structs (HTTP/gRPC) into dynamic SQL queries.  
-Stop maintaining bulky GraphQL schemas and let your Go structs safely and expressively define your database queries.
+Stop maintaining bulky `GraphQL` schemas and let your Go structs safely and expressively define your database queries.
 
 The project offers two distinct implementations depending on your needs for simplicity and flexibility versus power and expressivity, organized as standalone Go packages.
 

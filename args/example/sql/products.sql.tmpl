@@ -1,0 +1,2 @@
+{{define "all"}}SELECT p.id, p.name, p.price, p.stock FROM products p{{end}}
+{{define "withCategory"}}{{template "all" .}} JOIN categories c ON p.category_id = c.id AND c.name = ?{{end}}

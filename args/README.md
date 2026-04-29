@@ -173,3 +173,20 @@ import (
 // processor := reqql.NewProcessor(queryer, db.SelectContext)
 // err := processor.Proceed(ctx, &request, &results)
 ```
+
+## Example Application
+
+The `example/` directory contains a self-contained HTTP server that demonstrates `reqql/args` in a realistic setup:
+
+- **In-memory SQLite** database (via `modernc.org/sqlite`) seeded with 12 products across 3 categories
+- **Domain package** at `internal/reqql/products` that follows the same pattern as a production usage: maps enum-driven filter fields (`CategoryName`, `StockFilter`, `SortOrder`, `LimitName`) to `QueryParserFunc`, `WhereFunc`, `OrderFunc`, and `LimitFunc`
+- **SQL template** (`sql/products.sql.tmpl`) with two named blocks — `all` (no JOIN) and `withCategory` (JOIN to categories table) — embedded via `embed.FS`
+- **Single-page frontend** with a filter form and vanilla JS that POSTs JSON and renders the results
+
+To run:
+
+```bash
+cd example
+go run .
+# open http://localhost:8080
+```
