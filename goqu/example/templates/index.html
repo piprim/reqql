@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReqQL Products Demo</title>
+    <style>
+        body { font-family: sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+        h1 { margin-bottom: 1.5rem; }
+        .filters { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1.25rem; }
+        .filter-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        label { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #555; }
+        select { padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
+        button { padding: 0.4rem 1.2rem; background: #0070f3; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
+        button:hover { background: #005ecb; }
+        .status { font-size: 0.875rem; color: #666; margin-bottom: 0.75rem; min-height: 1.2em; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+        thead th { background: #f5f5f5; font-weight: 600; padding: 0.6rem 0.8rem; text-align: left; border-bottom: 2px solid #ddd; }
+        tbody td { padding: 0.55rem 0.8rem; border-bottom: 1px solid #eee; }
+        tbody tr:hover { background: #fafafa; }
+        .price { font-variant-numeric: tabular-nums; }
+        .stock-zero { color: #c00; }
+    </style>
+</head>
+<body>
+    <h1>ReqQL Products Demo</h1>
+
+    <div class="filters">
+        <div class="filter-group">
+            <label for="categoryName">Category</label>
+            <select id="categoryName">
+                <option value="all">All</option>
+                <option value="electronics">Electronics</option>
+                <option value="clothing">Clothing</option>
+                <option value="food">Food</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="stockFilter">Stock</label>
+            <select id="stockFilter">
+                <option value="all">All</option>
+                <option value="inStock">In Stock</option>
+                <option value="outOfStock">Out of Stock</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="sortCols">Sort by</label>
+            <select id="sortCols" onchange="toggleSortDir()">
+                <option value="">None</option>
+                <option value="price">Price</option>
+                <option value="name">Name</option>
+                <option value="stock">Stock</option>
+                <option value="category.name">Category</option>
+            </select>
+        </div>
+        <div class="filter-group" id="sortDirGroup" style="display:none">
+            <label for="sortAsc">Direction</label>
+            <select id="sortAsc">
+                <option value="true">↑ ASC</option>
+                <option value="false">↓ DESC</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="limitName">Limit</label>
+            <select id="limitName">
+                <option value="all">All</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+            </select>
+        </div>
+        <button onclick="applyFilter()">Apply</button>
+    </div>
+
+    <p class="status" id="status">Loading…</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Price</th>
+                <th>Stock</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+
+    <script>
+        function toggleSortDir() {
+            const cols = document.getElementById("sortCols").value;
+            document.getElementById("sortDirGroup").style.display = cols ? "flex" : "none";
+        }
+
+        async function applyFilter() {
+            const cols = document.getElementById("sortCols").value;
+            const sortOrder = cols
+                ? { cols: cols, asc: document.getElementById("sortAsc").value === "true" }
+                : { asc: null };
+
+            const filter = {
+                categoryName: document.getElementById("categoryName").value,
+                stockFilter:  document.getElementById("stockFilter").value,
+                sortOrder:    sortOrder,
+                limitName:    document.getElementById("limitName").value,
+            };
+
+            const res = await fetch("/products", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(filter),
+            });
+
+            const data = await res.json();
+            renderTable(data);
+        }
+
+        function renderTable(items) {
+            const tbody = document.getElementById("tableBody");
+            const status = document.getElementById("status");
+
+            tbody.innerHTML = items.map(p => {
+                const stockClass = p.stock === 0 ? " class=\"stock-zero\"" : "";
+                return `<tr>
+                    <td>${p.id}</td>
+                    <td>${p.name}</td>
+                    <td class="price">$${p.price.toFixed(2)}</td>
+                    <td${stockClass}>${p.stock}</td>
+                </tr>`;
+            }).join("");
+
+            const n = items.length;
+            status.textContent = `${n} product${n !== 1 ? "s" : ""} found`;
+        }
+
+        document.addEventListener("DOMContentLoaded", applyFilter);
+    </script>
+</body>
+</html>
