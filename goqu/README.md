@@ -10,7 +10,7 @@
 ## Installation
 
 ```bash
-go get github.com/piprim/reqql
+go get github.com/piprim/reqql/goqu
 ```
 
 ## Quick Start
